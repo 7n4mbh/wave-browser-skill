@@ -1,0 +1,39 @@
+{
+  "name": "wave-browser-skill",
+  "version": "0.1.0",
+  "description": "Wave Terminal skill: drive a real browser via Playwright with the screencast streamed into a Wave VDOM block. Installable with `npx skills add ...`.",
+  "homepage": "https://github.com/7n4mbh/wave-browser-skill",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/7n4mbh/wave-browser-skill.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "skill",
+    "skills.sh",
+    "wave-terminal",
+    "playwright",
+    "browser",
+    "automation",
+    "agent",
+    "claude",
+    "codex",
+    "gemini"
+  ],
+  "skills": [
+    {
+      "name": "wave-browser",
+      "path": "skills/wave-browser",
+      "manifest": "skills/wave-browser/SKILL.md",
+      "description": "Drive a headless Chromium browser and stream the screencast into a Wave Terminal VDOM block."
+    }
+  ],
+  "files": [
+    "skills/",
+    ".claude-plugin/",
+    "gemini-extension.json",
+    "codex-plugin.json",
+    "README.md",
+    "LICENSE"
+  ]
+}

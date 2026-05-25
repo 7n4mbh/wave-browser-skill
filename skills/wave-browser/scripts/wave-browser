@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# wave-browser launcher — ensures the Python venv is set up, then dispatches
+# the CLI. Agents invoke this script (not the .py directly) so the runtime
+# is self-bootstrapping.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV_DIR="${WAVE_BROWSER_VENV:-$SKILL_DIR/.venv}"
+
+if [ ! -f "$VENV_DIR/.installed" ]; then
+  bash "$SCRIPT_DIR/bootstrap.sh" >&2
+fi
+
+# Wave Terminal integration. When this script is exec'd by `wsh run -- ...`
+# it runs without sourcing the user's shell rc, so the Wave swap-token has
+# not been exchanged for a JWT and `$WAVETERM_WSHBINDIR` is not on PATH.
+# Replicate the minimum the official Wave bash integration does so that
+# `wsh view` calls from our Python process succeed.
+if [ -n "${WAVETERM_WSHBINDIR:-}" ]; then
+  case ":$PATH:" in
+    *":$WAVETERM_WSHBINDIR:"*) ;;
+    *) export PATH="$WAVETERM_WSHBINDIR:$PATH" ;;
+  esac
+fi
+if [ -n "${WAVETERM_SWAPTOKEN:-}" ]; then
+  _wsh_bin="${WAVETERM_WSHBINDIR:+$WAVETERM_WSHBINDIR/wsh}"
+  if [ -z "$_wsh_bin" ] || [ ! -x "$_wsh_bin" ]; then
+    _wsh_bin="$(command -v wsh 2>/dev/null || true)"
+  fi
+  if [ -n "$_wsh_bin" ] && [ -x "$_wsh_bin" ]; then
+    eval "$("$_wsh_bin" token "$WAVETERM_SWAPTOKEN" bash 2>/dev/null || true)"
+    unset WAVETERM_SWAPTOKEN
+  fi
+  unset _wsh_bin
+fi
+
+exec "$VENV_DIR/bin/python" "$SCRIPT_DIR/wave_browser.py" "$@"

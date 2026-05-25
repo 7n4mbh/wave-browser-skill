@@ -1,0 +1,17 @@
+{
+  "name": "wave-browser",
+  "version": "0.1.0",
+  "description": "Browser automation skill for Codex CLI. Drives headless Chromium with Playwright and shows the live screencast in a Wave Terminal VDOM block.",
+  "author": "wave-browser-skill contributors",
+  "homepage": "https://github.com/7n4mbh/wave-browser-skill",
+  "license": "MIT",
+  "kind": "skill",
+  "entry": "skills/wave-browser/SKILL.md",
+  "skills": [
+    {
+      "name": "wave-browser",
+      "path": "skills/wave-browser",
+      "manifest": "skills/wave-browser/SKILL.md"
+    }
+  ]
+}

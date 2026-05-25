@@ -1,0 +1,22 @@
+{
+  "name": "wave-browser",
+  "version": "0.1.0",
+  "description": "Drive a headless Chromium browser from your agent and watch the screencast live in a Wave Terminal VDOM block.",
+  "author": {
+    "name": "wave-browser-skill contributors"
+  },
+  "homepage": "https://github.com/7n4mbh/wave-browser-skill",
+  "repository": "https://github.com/7n4mbh/wave-browser-skill",
+  "license": "MIT",
+  "keywords": [
+    "wave-terminal",
+    "browser",
+    "playwright",
+    "automation",
+    "screencast",
+    "vdom"
+  ],
+  "skills": [
+    "./skills/wave-browser"
+  ]
+}
