@@ -21,6 +21,7 @@ import argparse
 import asyncio
 import json
 import os
+import platform
 import shutil
 import signal
 import socket
@@ -123,6 +124,63 @@ VIEWER_HTML = """<!doctype html>
 
 
 # ---------------------------------------------------------------------------
+# User agent
+# ---------------------------------------------------------------------------
+
+# Edge stable channel as of 2026 H1. The version is intentionally a recent
+# but plausible value; bump occasionally if servers start flagging it as
+# stale. Override at runtime with WAVE_BROWSER_USER_AGENT.
+_EDGE_VERSION = "124.0.0.0"
+
+
+def _default_locale() -> str:
+    """Return a BCP-47 locale matching the host OS.
+
+    Playwright's BrowserContext sets both navigator.language and the
+    Accept-Language header from this value, which determines what
+    language enterprise login pages (e.g. Microsoft SSO) render in.
+    Override at runtime with WAVE_BROWSER_LOCALE.
+    """
+    override = os.environ.get("WAVE_BROWSER_LOCALE")
+    if override:
+        return override
+    try:
+        import locale as _locale
+        lang = _locale.getdefaultlocale()[0]
+        if lang:
+            return lang.replace("_", "-")
+    except Exception:
+        pass
+    return "en-US"
+
+
+def _default_user_agent() -> str:
+    """Return an Edge-flavored UA string matching the host OS.
+
+    Enterprise sites occasionally route requests by UA. Sending a UA that
+    matches the actual host platform avoids being downgraded to a
+    minimal/legacy code path. The previous hard-coded Linux UA caused
+    some Accenture endpoints (e.g. /mytim/secure/*) to return 404 when
+    accessed from Windows.
+    """
+    override = os.environ.get("WAVE_BROWSER_USER_AGENT")
+    if override:
+        return override
+    system = platform.system()
+    if system == "Windows":
+        os_part = "Windows NT 10.0; Win64; x64"
+    elif system == "Darwin":
+        os_part = "Macintosh; Intel Mac OS X 10_15_7"
+    else:
+        os_part = "X11; Linux x86_64"
+    return (
+        f"Mozilla/5.0 ({os_part}) AppleWebKit/537.36 "
+        f"(KHTML, like Gecko) Chrome/{_EDGE_VERSION} Safari/537.36 "
+        f"Edg/{_EDGE_VERSION}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Browser session
 # ---------------------------------------------------------------------------
 
@@ -152,10 +210,8 @@ class Session:
         )
         self.context = await self.browser.new_context(
             viewport={"width": viewport[0], "height": viewport[1]},
-            user_agent=(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            ),
+            user_agent=_default_user_agent(),
+            locale=_default_locale(),
         )
         self.page = await self.context.new_page()
 
