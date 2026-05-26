@@ -57,11 +57,11 @@ DEFAULT_VIEWPORT = (1280, 800)
 
 # Lifecycle. The serve process is normally launched *inside a Wave terminal
 # block* via `wsh run`, so closing that block sends SIGTERM/SIGHUP and the
-# process dies immediately — that is the primary mechanism. The values below
+# process dies immediately -- that is the primary mechanism. The values below
 # are a secondary safety net for two cases:
 #  (a) the viewer preview block never connects (e.g. `wsh view` failed)
 #  (b) the user closed the *viewer* block but kept the *terminal* block
-#      around — we don't want a headless Chromium running invisibly.
+#      around -- we don't want a headless Chromium running invisibly.
 # Set IDLE_TIMEOUT=0 to disable the safety net entirely.
 STARTUP_GRACE = float(os.environ.get("WAVE_BROWSER_STARTUP_GRACE", "60"))
 IDLE_TIMEOUT = float(os.environ.get("WAVE_BROWSER_IDLE_TIMEOUT", "10"))
@@ -91,7 +91,7 @@ VIEWER_HTML = """<!doctype html>
 <div class="bar">
   <div class="dot" id="dot"></div>
   <div><strong>wave-browser</strong></div>
-  <div class="url" id="url">—</div>
+  <div class="url" id="url">--</div>
   <div class="status" id="status">connecting…</div>
 </div>
 <div class="stage"><img id="screen" alt=""/><div class="idle" id="idle" style="display:none">waiting for first frame…</div></div>
@@ -112,7 +112,7 @@ VIEWER_HTML = """<!doctype html>
         const msg=JSON.parse(ev.data);
         if(msg.frame){img.src='data:image/jpeg;base64,'+msg.frame;gotFrame=true;idle.style.display='none';}
         if(typeof msg.url==='string'){urlEl.textContent=msg.url||'about:blank';}
-        if(typeof msg.title==='string'&&msg.title){document.title='wave-browser — '+msg.title;}
+        if(typeof msg.title==='string'&&msg.title){document.title='wave-browser -- '+msg.title;}
       }catch(e){}
     };
   }
@@ -413,7 +413,7 @@ async def serve_main(start_url: str, port: int) -> None:
         """Tie the daemon's life to the Wave VDOM viewer.
 
         Phase 1: wait up to STARTUP_GRACE seconds for the first WS client.
-                 If nobody connects, the block must have failed to open —
+                 If nobody connects, the block must have failed to open --
                  exit so we don't leak a headless Chromium.
         Phase 2: once at least one viewer has connected, exit when both the
                  viewer and the /action HTTP API have been idle for
@@ -428,7 +428,7 @@ async def serve_main(start_url: str, port: int) -> None:
             await asyncio.sleep(0.5)
         if not session.first_client_seen:
             sys.stderr.write(
-                f"[wave-browser] no viewer connected within {STARTUP_GRACE:.0f}s — shutting down\n"
+                f"[wave-browser] no viewer connected within {STARTUP_GRACE:.0f}s -- shutting down\n"
             )
             stop_event.set()
             return
@@ -437,7 +437,7 @@ async def serve_main(start_url: str, port: int) -> None:
                 session.last_activity = time.time()
             elif time.time() - session.last_activity > IDLE_TIMEOUT:
                 sys.stderr.write(
-                    f"[wave-browser] viewer closed and idle {IDLE_TIMEOUT:.0f}s — shutting down\n"
+                    f"[wave-browser] viewer closed and idle {IDLE_TIMEOUT:.0f}s -- shutting down\n"
                 )
                 stop_event.set()
                 return
@@ -468,19 +468,23 @@ async def serve_main(start_url: str, port: int) -> None:
     )
 
     # Open the live screencast as a Wave web/VDOM block. That block is the
-    # only Wave-side UI for this session — closing it severs the WebSocket
+    # only Wave-side UI for this session -- closing it severs the WebSocket
     # and the lifecycle monitor below exits the process.
     print(f"[wave-browser] viewer: {viewer_url}", flush=True)
     print(_open_in_wave(viewer_url), flush=True)
-    print("[wave-browser] ready — close the Wave viewer block to stop the browser.", flush=True)
+    print("[wave-browser] ready -- close the Wave viewer block to stop the browser.", flush=True)
 
     loop = asyncio.get_event_loop()
-    # SIGHUP arrives when Wave closes the parent terminal block.
-    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    # SIGHUP arrives when Wave closes the parent terminal block (not on Windows).
+    _sigs = [signal.SIGTERM, signal.SIGINT]
+    _sighup = getattr(signal, "SIGHUP", None)
+    if _sighup is not None:
+        _sigs.append(_sighup)
+    for sig in _sigs:
         try:
             loop.add_signal_handler(sig, stop_event.set)
         except (NotImplementedError, AttributeError):
-            pass  # Windows / SIGHUP missing
+            pass  # Windows does not support add_signal_handler
 
     monitor_task = asyncio.create_task(lifecycle_monitor())
     try:
@@ -513,6 +517,39 @@ def _alloc_port() -> int:
     return p
 
 
+def _pid_alive(pid: int) -> bool:
+    """Cross-platform PID liveness check.
+
+    On Windows ``os.kill(pid, 0)`` is implemented via TerminateProcess and
+    actually kills the target, so we must use OpenProcess/WaitForSingleObject
+    instead. On POSIX, signal 0 is the standard liveness probe.
+    """
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def _session_info() -> Optional[dict]:
     if not SESSION_FILE.exists():
         return None
@@ -521,8 +558,10 @@ def _session_info() -> Optional[dict]:
     except Exception:
         return None
     try:
-        os.kill(int(info["pid"]), 0)
-    except (OSError, KeyError, ValueError):
+        alive = _pid_alive(int(info["pid"]))
+    except (KeyError, ValueError):
+        alive = False
+    if not alive:
         try:
             SESSION_FILE.unlink()
         except FileNotFoundError:
@@ -593,19 +632,24 @@ def _set_wsh(path: Optional[str]) -> None:
 def _open_in_wave(url: str) -> str:
     wsh = _find_wsh()
     if not wsh:
-        return f"wsh not on PATH — open this URL in any browser: {url}"
+        return f"wsh not on PATH -- open this URL in any browser: {url}"
     if not _detect_wave():
-        return f"not running under Wave Terminal — open in browser: {url}"
+        return f"not running under Wave Terminal -- open in browser: {url}"
     try:
-        # Wave Terminal preview/VDOM block: `wsh view <url>` opens a web block
-        subprocess.run(
-            [wsh, "view", url],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        return f"opened Wave VDOM/preview block: {url}"
+        # Wave Terminal: `wsh view <url>` opens a Web Block (Chromium view).
+        # On Windows, suppress the console window that Windows would otherwise
+        # allocate when a console-less parent (DETACHED_PROCESS daemon) spawns
+        # a CLI subprocess.
+        run_kwargs = {
+            "check": True,
+            "capture_output": True,
+            "text": True,
+            "timeout": 10,
+        }
+        if sys.platform == "win32":
+            run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        subprocess.run([wsh, "view", url], **run_kwargs)
+        return f"opened Wave Web Block: {url}"
     except subprocess.CalledProcessError as e:
         return f"wsh view failed ({e.returncode}): {(e.stderr or e.stdout or '').strip()}"
     except Exception as e:
@@ -615,7 +659,7 @@ def _open_in_wave(url: str) -> str:
 def _post(path: str, body: dict, timeout: float = 120) -> dict:
     info = _session_info()
     if not info:
-        return {"ok": False, "error": "no session running — run `wave-browser start [URL]` first"}
+        return {"ok": False, "error": "no session running -- run `wave-browser start [URL]` first"}
     req = urllib.request.Request(
         f"http://127.0.0.1:{info['port']}{path}",
         data=json.dumps(body).encode("utf-8"),
@@ -654,25 +698,44 @@ def cmd_start(args) -> int:
     port = _alloc_port()
     wsh_path = _find_wsh()
 
-    # The serve process runs as a detached helper of THIS shell — invisible to
+    # The serve process runs as a detached helper of THIS shell -- invisible to
     # the user. It opens exactly one Wave block (the web/VDOM viewer at
     # http://127.0.0.1:<port>/) via `wsh view`. When the user closes that
     # block the WebSocket disconnects, the IDLE_TIMEOUT trips, and the
-    # subprocess exits — taking Chromium with it. No terminal block, no
+    # subprocess exits -- taking Chromium with it. No terminal block, no
     # zombies.
     script = os.path.abspath(__file__)
     log_fp = open(LOG_FILE, "ab", buffering=0)
     serve_argv = [sys.executable, script, "__serve__", args.url, str(port)]
     if wsh_path:
         serve_argv.append(wsh_path)
-    subprocess.Popen(
-        serve_argv,
-        stdout=log_fp,
-        stderr=log_fp,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        close_fds=True,
-    )
+    popen_kwargs = {
+        "stdout": log_fp,
+        "stderr": log_fp,
+        "stdin": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if sys.platform == "win32":
+        # Give the daemon its OWN hidden console instead of fully detaching.
+        # Rationale:
+        # - DETACHED_PROCESS (no console at all) would cause Playwright's
+        #   internal Node driver and wsh.exe to trigger a fresh, VISIBLE
+        #   console window because they are console apps and Windows
+        #   allocates one when the parent has none.
+        # - CREATE_NO_WINDOW allocates a hidden console for the daemon. That
+        #   hidden console is then inherited by every child subprocess, so
+        #   no command-prompt window ever appears.
+        # - CREATE_NEW_PROCESS_GROUP detaches the daemon from the parent
+        #   shell's Ctrl+C/Ctrl+Break group, so the parent CLI can exit
+        #   cleanly without sending signals to the daemon.
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NO_WINDOW
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+            | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000)
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+    subprocess.Popen(serve_argv, **popen_kwargs)
 
     deadline = time.time() + 60
     info = None

@@ -28,16 +28,23 @@ The launcher self-bootstraps a venv on first call. If you want to do it
 explicitly:
 
 ```bash
+# Linux / macOS
 bash "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")}/skills/wave-browser/scripts/bootstrap.sh"
+```
+
+```cmd
+:: Windows (cmd.exe / PowerShell)
+"%CLAUDE_PLUGIN_ROOT%\skills\wave-browser\scripts\bootstrap.bat"
 ```
 
 Within this skill the executable is at:
 
 ```
-scripts/wave-browser
+scripts/wave-browser       # Linux / macOS
+scripts/wave-browser.bat   # Windows
 ```
 
-Always invoke it via that wrapper (not the `.py` file).
+Always invoke the platform-appropriate wrapper (not the `.py` file).
 
 ## Lifecycle
 
@@ -153,9 +160,11 @@ identically either way.
 ## Files
 
 ```
-scripts/wave-browser          # bash launcher (use this)
+scripts/wave-browser          # bash launcher (Linux / macOS - use this)
+scripts/wave-browser.bat      # Windows launcher
 scripts/wave_browser.py       # daemon + CLI implementation
-scripts/bootstrap.sh          # venv setup
+scripts/bootstrap.sh          # venv setup (Linux / macOS)
+scripts/bootstrap.bat         # venv setup (Windows)
 requirements.txt              # playwright + aiohttp
 ```
 
