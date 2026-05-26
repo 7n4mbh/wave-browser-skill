@@ -1,4 +1,4 @@
-# wave-browser
+# wave-browser-skill
 
 A Wave Terminal **skill** that lets your AI agent (Claude Code, Codex CLI,
 Gemini CLI, …) drive a real Chromium browser through Playwright while you
